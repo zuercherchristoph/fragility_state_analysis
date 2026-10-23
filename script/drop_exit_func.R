@@ -60,18 +60,37 @@ fill_missing <- function(year,
 #' Detect "exit" and "relapse" episodes by country over time
 #'
 #' @description
-#' Scans country-year indicator series to detect three types of episodes:
-#' - **Fast Exit** ("Breakthrough"): exactly `TIME_THRESHOLD` years **below_start_p == 1**
-#'   immediately followed by `TIME_THRESHOLD` years **above_exit_p == 1**.
-#' - **Gradual Exit** ("Soft Breakthrough"): `TIME_THRESHOLD` years **below_start_p == 1**
-#'   followed (not necessarily immediately) at some later point by `TIME_THRESHOLD` years
-#'   **above_exit_p == 1** (only counted if the country does **not** already have a Fast Exit).
-#' - **Relapse** ("Drop"): `TIME_THRESHOLD` years **above_exit_p == 1** followed later by
-#'   `TIME_THRESHOLD` years **below_start_p == 1**.
+#' Scans each country's year-by-year series once, in chronological order, and
+#' records **every** qualifying regime transition (not just the first):
+#' - **Fast Exit**: a confirmed fragile regime (see below) is immediately
+#'   (no gap) followed by `TIME_THRESHOLD` consecutive years of
+#'   **above_exit_p == 1**.
+#' - **Gradual Exit**: a confirmed fragile regime is followed, at some later
+#'   point (with a gap), by `TIME_THRESHOLD` consecutive years of
+#'   **above_exit_p == 1**.
+#' - **Relapse**: a confirmed non-fragile (exited) regime is followed, at some
+#'   later point, by `TIME_THRESHOLD` consecutive years of
+#'   **below_start_p == 1**.
+#'
+#' A country's **starting regime** is established by the *first* run of
+#' `TIME_THRESHOLD` consecutive years of *either* `below_start_p == 1` or
+#' `above_exit_p == 1`, whichever occurs first chronologically -- establishing
+#' the baseline is not itself an event. (Earlier versions of this function
+#' required the starting run to specifically be `below_start_p`, which meant a
+#' country whose first-ever confirmed `TIME_THRESHOLD`-year run was an
+#' `above_exit_p` spell could never have that spell -- or the relapse that
+#' later followed it -- correctly logged as a dated pair.)
+#'
+#' From the starting regime onward, the scan alternates: each time it finds
+#' the *next* `TIME_THRESHOLD`-year run of the opposite type, it logs that
+#' transition (dated at the first year of the run) and continues searching
+#' for the *next* transition after that run -- so a country that exits,
+#' relapses, and exits again gets all of those episodes, not just the first
+#' of each type.
 #'
 #' Missing years in each country's panel are completed to a full sequence and
-#' then filled using `fill_missing()` (assumed available in your environment),
-#' so the detection logic always runs on a contiguous, year-by-year series.
+#' then filled using `fill_missing()`, so the detection logic always runs on
+#' a contiguous, year-by-year series.
 #'
 #' @param df A data frame/tibble with columns:
 #'   - `Country` (factor/character),
@@ -86,19 +105,6 @@ fill_missing <- function(year,
 #'   - `Type`: one of `"Fast Exit"`, `"Gradual Exit"`, or `"Relapse"`,
 #'   - `Country`: country identifier.
 #'
-#' @details
-#' Logic is evaluated country-by-country on completed/filled yearly series.
-#' - **Fast Exit**: detect a block `[i, i+T-1]` where `below_start_p == 1`, immediately followed by
-#'   `[i+T, i+2T-1]` where `above_exit_p == 1`. The event is recorded at year `year[i+T]`.
-#' - **Gradual Exit**: after a `[i, i+T-1]` block of `below_start_p == 1`, search forward for *any*
-#'   later contiguous `[j, j+T-1]` block with `above_exit_p == 1`. If the country does not already
-#'   have a Fast Exit, record at `year[j]`.
-#' - **Relapse**: after a `[i, i+T-1]` block of `above_exit_p == 1`, search forward for *any* later
-#'   contiguous `[j, j+T-1]` block with `below_start_p == 1`. Record at `year[j]`.
-#'
-#' If a country has fewer than `T-1` observations, Fast Exit cannot occur; with fewer than `T`
-#' observations, nothing is detectable and the country is skipped.
-#'
 #' @examples
 #' # drop_exit_func(my_panel_df, TIME_THRESHOLD = 3)
 #'
@@ -112,166 +118,85 @@ drop_exit_func <- function(df, TIME_THRESHOLD) {
   if (!is.numeric(TIME_THRESHOLD) || length(TIME_THRESHOLD) != 1 || TIME_THRESHOLD < 1) {
     stop("`TIME_THRESHOLD` must be a single positive integer.")
   }
-  
-  # ---- Containers to store results -------------------------------------------
-  breakthrough_list <- c()      # Countries with a Fast Exit (to avoid double-tagging as Gradual)
-  soft_breakthrough_list <- c() # Countries with a Gradual Exit
-  drop_list <- c()              # Countries with a Relapse
-  
-  breakthrough_df <- NULL
-  soft_breakthrough_df <- NULL
-  drop_df <- NULL
-  
-  # Get unique countries
+
   country_list <- df |>
     dplyr::ungroup() |>
     dplyr::distinct(Country) |>
     dplyr::pull(Country)
-  
-  # ============================================================================
-  # PASS 1: Detect FAST EXIT (Below for T, then immediately Above for T)
-  # ============================================================================
+
+  all_events <- NULL
+
   for (country_name in country_list) {
-    
-    # Subset this country's data and keep required columns
+
     df_country <- df |>
       dplyr::ungroup() |>
       dplyr::filter(Country == country_name) |>
       dplyr::select(year, below_start_p, above_exit_p, below_exit_p)
-    
+
     # Complete yearly sequence and fill missing indicators
     df_country <- df_country |>
       dplyr::reframe(year = seq(from = min(year), to = max(year), by = 1)) |>
       dplyr::left_join(df_country, by = "year") |>
       dplyr::arrange(year) |>
       dplyr::reframe(fill_missing(year, below_start_p, above_exit_p, below_exit_p))
-    
-    # Extract vectors for speed/convenience
-    year          <- df_country |> dplyr::pull(year)
-    below_start_p <- df_country |> dplyr::pull(below_start_p)
-    above_exit_p  <- df_country |> dplyr::pull(above_exit_p)
-    # below_exit_p is not used in the current episode definitions
-    N <- length(year)
-    
-    # Need at least T-1 observations to detect an immediate  T run
-    if(N< TIME_THRESHOLD - 1) next
-    
-    # Sliding window starts: i .. i+T-1 must be valid within N
-    seq_th <- seq_len(N - TIME_THRESHOLD + 1)
-    
-    for (i in seq_th) {
-      # Check T consecutive years "below_start_p == 1"
-      if (all(below_start_p[i:(i + TIME_THRESHOLD - 1)] == 1)) {
-        # Immediately after, check T consecutive years "above_exit_p == 1"
-        if ((i - 1 + TIME_THRESHOLD * 2) <= N &&
-            all(above_exit_p[(i + TIME_THRESHOLD):(i + TIME_THRESHOLD * 2 - 1)] == 1)) {
-          # Record only once per country
-          if (!country_name %in% breakthrough_list) {
-            breakthrough_list <- c(breakthrough_list, country_name)
-            breakthrough_df <- dplyr::bind_rows(
-              breakthrough_df,
-              data.frame(Year = year[i + TIME_THRESHOLD], Type = "Fast Exit", Country = country_name)
-            )
-          }
-        }
-      }
-    }
-  }
-  
-  # ============================================================================
-  # PASS 2: Detect GRADUAL EXIT (Below for T, then later Above for T)
-  #          — only if not already flagged as Fast Exit.
-  # ============================================================================
-  for (country_name in country_list) {
-    
-    df_country <- df |>
-      dplyr::ungroup() |>
-      dplyr::filter(Country == country_name) |>
-      dplyr::select(year, below_start_p, above_exit_p, below_exit_p)
-    
-    df_country <- df_country |>
-      dplyr::reframe(year = seq(from = min(year), to = max(year), by = 1)) |>
-      dplyr::left_join(df_country, by = "year") |>
-      dplyr::arrange(year) |>
-      dplyr::reframe(fill_missing(year, below_start_p, above_exit_p, below_exit_p))
-    
+
     year          <- df_country |> dplyr::pull(year)
     below_start_p <- df_country |> dplyr::pull(below_start_p)
     above_exit_p  <- df_country |> dplyr::pull(above_exit_p)
     N <- length(year)
-    
-    if (N < TIME_THRESHOLD - 1) next
-    seq_th <- seq_len(N - TIME_THRESHOLD + 1)
-    
-    for (i in seq_th) {
-      # First block: T consecutive "below_start_p == 1"
-      if (all(below_start_p[i:(i + TIME_THRESHOLD - 1)] == 1)) {
-        # Search forward for ANY later T-block of "above_exit_p == 1"
-        j <- i + TIME_THRESHOLD
-        while (j <= N - TIME_THRESHOLD + 1) {
-          if (all(above_exit_p[j:(j + TIME_THRESHOLD - 1)] == 1)) {
-            if (!country_name %in% soft_breakthrough_list &&
-                !country_name %in% breakthrough_list) {
-              soft_breakthrough_list <- c(soft_breakthrough_list, country_name)
-              soft_breakthrough_df <- dplyr::bind_rows(
-                soft_breakthrough_df,
-                data.frame(Year = year[j], Type = "Gradual Exit", Country = country_name)
-              )
-            }
-          }
-          j <- j + 1
-        }
+
+    if (N < TIME_THRESHOLD) next
+
+    is_run <- function(x, start) {
+      end <- start + TIME_THRESHOLD - 1
+      end <= N && !anyNA(x[start:end]) && all(x[start:end] == 1)
+    }
+
+    # ---- Establish the starting regime: first T-year run of either type ----
+    state <- NA_character_   # "fragile" or "nonfragile"
+    block_end <- NA_integer_
+    for (i in seq_len(N - TIME_THRESHOLD + 1)) {
+      if (is_run(below_start_p, i)) {
+        state <- "fragile"; block_end <- i + TIME_THRESHOLD - 1; break
+      }
+      if (is_run(above_exit_p, i)) {
+        state <- "nonfragile"; block_end <- i + TIME_THRESHOLD - 1; break
       }
     }
-  }
-  
-  # ============================================================================
-  # PASS 3: Detect RELAPSE (Above for T, then later Below for T)
-  # ============================================================================
-  for (country_name in country_list) {
-    
-    df_country <- df |>
-      dplyr::ungroup() |>
-      dplyr::filter(Country == country_name) |>
-      dplyr::select(year, below_start_p, above_exit_p, below_exit_p)
-    
-    df_country <- df_country |>
-      dplyr::reframe(year = seq(from = min(year), to = max(year), by = 1)) |>
-      dplyr::left_join(df_country, by = "year") |>
-      dplyr::arrange(year) |>
-      dplyr::reframe(fill_missing(year, below_start_p, above_exit_p, below_exit_p))
-    
-    year          <- df_country |> dplyr::pull(year)
-    below_start_p <- df_country |> dplyr::pull(below_start_p)
-    above_exit_p  <- df_country |> dplyr::pull(above_exit_p)
-    N <- length(year)
-    
-    if (N < TIME_THRESHOLD - 1) next
-    seq_th <- seq_len(N - TIME_THRESHOLD + 1)
-    
-    for (i in seq_th) {
-      # First block: T consecutive "above_exit_p == 1"
-      if (all(above_exit_p[i:(i + TIME_THRESHOLD - 1)] == 1)) {
-        # Search forward for ANY later T-block of "below_start_p == 1"
-        j <- i + TIME_THRESHOLD
-        while (j <= N - TIME_THRESHOLD + 1) {
-          if (all(below_start_p[j:(j + TIME_THRESHOLD - 1)] == 1)) {
-            if (!country_name %in% drop_list) {
-              drop_list <- c(drop_list, country_name)
-              drop_df <- dplyr::bind_rows(
-                drop_df,
-                data.frame(Year = year[j], Type = "Relapse", Country = country_name)
-              )
-            }
-          }
-          j <- j + 1
-        }
+    if (is.na(state)) next  # no confirmed regime ever observed for this country
+
+    # ---- Walk forward, logging every subsequent transition -----------------
+    repeat {
+      target <- if (state == "fragile") above_exit_p else below_start_p
+      search_from <- block_end + 1
+      if (search_from > N - TIME_THRESHOLD + 1) break
+
+      next_start <- NA_integer_
+      for (j in search_from:(N - TIME_THRESHOLD + 1)) {
+        if (is_run(target, j)) { next_start <- j; break }
       }
+      if (is.na(next_start)) break  # no further qualifying transition
+
+      if (state == "fragile") {
+        event_type <- if (next_start == block_end + 1) "Fast Exit" else "Gradual Exit"
+        new_state <- "nonfragile"
+      } else {
+        event_type <- "Relapse"
+        new_state <- "fragile"
+      }
+
+      all_events <- dplyr::bind_rows(
+        all_events,
+        data.frame(Year = year[next_start], Type = event_type, Country = country_name)
+      )
+
+      state <- new_state
+      block_end <- next_start + TIME_THRESHOLD - 1
     }
   }
-  
-  # ---- Combine all episode types into one tibble ------------------------------
-  res <- dplyr::bind_rows(breakthrough_df, soft_breakthrough_df, drop_df)
-  
-  return(res)
+
+  if (is.null(all_events)) {
+    return(data.frame(Year = numeric(0), Type = character(0), Country = character(0)))
+  }
+  all_events
 }
