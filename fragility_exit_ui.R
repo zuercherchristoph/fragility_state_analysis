@@ -5,15 +5,15 @@ page_sidebar(
                     h3("Input",style = "background-color: #0d2b56;color: white !important; text-align: center;"),
                     selectInput(inputId="Data_input", label = "Input data", choices=datavariable), 
                     selectInput(inputId="Year_input", label="Reference period", choices =YearList$WGI), 
-                    selectInput(inputId="PCA_input", label="Input indicators",choices=PCA_Varlist$WGI, multiple = TRUE, selected=PCA_Varlist$WGI[1:3]),               
+                    selectInput(inputId="PCA_input", label="Input indicators",choices=PCA_Varlist$WGI, multiple = TRUE, selected=default_indicators$WGI),
                     #hr(),
                     selectInput(inputId="Country_select_type", label="Country group", choices=geo_group),
                     selectInput(inputId="Country_select", label="Selected country", choices=Map_data$WGI$`Country.Territory`, selected =Map_data$WGI$`Country.Territory`[1] , width="100%"),
-                    
+
                    # hr(),
-                    radioButtons(inputId="Percentile_type", label="Percentile type", choices=c("Fixed","Varying"), inline = TRUE),
-                    radioButtons(inputId="Index_type", label="Type of indicators", choices = c("Raw", "Composite"), inline=TRUE),
-                    selectInput(inputId="Output_indicator", label="Output indicator", choices=PCA_Varlist$WGI),
+                    radioButtons(inputId="Percentile_type", label="Percentile type", choices=c("Fixed","Varying"), selected="Varying", inline = TRUE),
+                    radioButtons(inputId="Index_type", label="Type of indicators", choices = c("Raw", "Composite"), selected="Composite", inline=TRUE),
+                    selectInput(inputId="Output_indicator", label="Output indicator", choices=outputvariable, selected=default_output_indicator),
                     sliderInput(input="Percentile_Value", label="Sucess threshold (percentiles)", min=min(Yearlydata$Percent), max=max(Yearlydata$Percent), value=c(30,35), dragRange = TRUE, sep="",step=5, width="100%" ),
                     #hr(),
                     sliderInput(input="Criterium_Value", label="Success threshold (year)", min=1, max=length(YearList$WGI), value=5,  sep="",step = 5, width="100%" ),
@@ -110,9 +110,11 @@ Percentile_type_reac <- reactive({
 })
 
 observeEvent(input$PCA_input, {
+  new_choices <- Percentile_type_reac()
   updateSelectInput(session = session,
                     inputId = "Output_indicator",
-                    choices = Percentile_type_reac())
+                    choices = new_choices,
+                    selected = keep_or_default(input$Output_indicator, new_choices, new_choices[1]))
 })
 
 
@@ -120,27 +122,29 @@ observeEvent(input$PCA_input, {
 observeEvent(input$Data_input, {
   #Criterium_Value
   country <- sort(mapdata()[input$Country_select_type][, 1])
-  
+
   #print(unlist(country))
   updateSelectInput(session = session,
                     inputId = "Year_input",
                     choices = InputYear())
+  # Preferred default indicators for this source (falls back to its first 3
+  # variables for any source without an explicit preference, e.g. FSI).
+  preferred_selected <- default_indicators[[input$Data_input]]
+  if (is.null(preferred_selected)) preferred_selected <- InputPACVar()[1:3]
   updateSelectInput(
     session = session,
     inputId = "PCA_input",
     choices = InputPACVar(),
-    selected = InputPACVar()[1:3]
+    selected = preferred_selected
   )
-  updateRadioButtons(
-    session = session,
-    inputId = "Index_type",
-    choices = c("Raw", "Composite"),
-    selected = "Raw",
-    inline = TRUE
-  )
+  # Index_type (Raw/Composite) is intentionally left as-is here (not reset)
+  # so a Composite/Varying setup persists across Input-data switches instead
+  # of snapping back to Raw every time.
+  new_output_choices <- if (input$Index_type == "Raw") InputPACVar() else outputvariable
   updateSelectInput(session = session,
                     inputId = "Output_indicator",
-                    choices = InputPACVar())
+                    choices = new_output_choices,
+                    selected = keep_or_default(input$Output_indicator, new_output_choices, new_output_choices[1]))
   updateSliderInput(
     session = session,
     inputId = "Criterium_Value",
@@ -187,11 +191,13 @@ observeEvent(input$High_Treshold, {
 })
 
 observeEvent(input$Index_type, {
+  new_choices <- Percentile_type_reac()
   updateSelectInput(session = session,
                     inputId = "Output_indicator",
-                    choices = Percentile_type_reac())
-  
-  
+                    choices = new_choices,
+                    selected = keep_or_default(input$Output_indicator, new_choices, new_choices[1]))
+
+
 })
 
 observeEvent(input$Country_select_type, {
