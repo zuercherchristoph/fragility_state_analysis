@@ -57,20 +57,21 @@ fill_missing <- function(year,
 
 
 
-#' Detect "exit" and "relapse" episodes by country over time
+#' Detect "exit" and "fragility entry" episodes by country over time
 #'
 #' @description
 #' Scans each country's year-by-year series once, in chronological order, and
 #' records **every** qualifying regime transition (not just the first):
-#' - **Fast Exit**: a confirmed fragile regime (see below) is immediately
-#'   (no gap) followed by `TIME_THRESHOLD` consecutive years of
-#'   **above_exit_p == 1**.
-#' - **Gradual Exit**: a confirmed fragile regime is followed, at some later
-#'   point (with a gap), by `TIME_THRESHOLD` consecutive years of
-#'   **above_exit_p == 1**.
-#' - **Relapse**: a confirmed non-fragile (exited) regime is followed, at some
+#' - **Exit**: a confirmed fragile regime is followed, at some later point,
+#'   by `TIME_THRESHOLD` consecutive years of **above_exit_p == 1** (no
+#'   distinction is made between an immediate vs. a delayed transition).
+#' - **Fragility Entry**: a confirmed non-fragile regime is followed, at some
 #'   later point, by `TIME_THRESHOLD` consecutive years of
-#'   **below_start_p == 1**.
+#'   **below_start_p == 1**. Named "Entry" rather than "Relapse" because the
+#'   event only asserts a transition from confirmed non-fragile to confirmed
+#'   fragile -- it does not assert (and the data often cannot establish) that
+#'   the country was fragile at some earlier point too, which "relapse" would
+#'   imply.
 #'
 #' A country's **starting regime** is established by the *first* run of
 #' `TIME_THRESHOLD` consecutive years of *either* `below_start_p == 1` or
@@ -101,8 +102,8 @@ fill_missing <- function(year,
 #'   (consecutive years required to flag an episode).
 #'
 #' @return A tibble with columns:
-#'   - `Year`: the first year of the detected **exit** or **relapse** window described in `Type`,
-#'   - `Type`: one of `"Fast Exit"`, `"Gradual Exit"`, or `"Relapse"`,
+#'   - `Year`: the first year of the detected window described in `Type`,
+#'   - `Type`: one of `"Exit"` or `"Fragility Entry"`,
 #'   - `Country`: country identifier.
 #'
 #' @examples
@@ -178,10 +179,10 @@ drop_exit_func <- function(df, TIME_THRESHOLD) {
       if (is.na(next_start)) break  # no further qualifying transition
 
       if (state == "fragile") {
-        event_type <- if (next_start == block_end + 1) "Fast Exit" else "Gradual Exit"
+        event_type <- "Exit"
         new_state <- "nonfragile"
       } else {
-        event_type <- "Relapse"
+        event_type <- "Fragility Entry"
         new_state <- "fragile"
       }
 
