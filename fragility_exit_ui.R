@@ -1004,16 +1004,23 @@ exitdrop_func <- reactive({
 
 output$success_data <- renderDataTable({
   tryCatch({
+    # Group rows by event type in a fixed order (Fast Exit, then Gradual
+    # Exit, then Relapse), chronological within each group, rather than the
+    # default Country-alphabetical ordering.
+    event_type_order <- c("Fast Exit", "Gradual Exit", "Relapse")
     resf <- exitdrop_func()|>
+      mutate(Type = factor(Type, levels = event_type_order)) |>
+      arrange(Type, Year) |>
+      mutate(Type = as.character(Type)) |>
       relocate(Country, Year, Type)
-    
-    
-    
+
+
+
     renamecol <- c(
       "Country"="Country",
       "Event Year" = "Year",
       "Fragility Event" = "Type"
-      
+
     )
     datatable(
       resf,
@@ -1026,6 +1033,7 @@ output$success_data <- renderDataTable({
         deferRender = TRUE,
         scrollY = 250,
         scroller = TRUE,
+        order = list(),
         buttons = list(
           "copy",
           list(
