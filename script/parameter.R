@@ -60,6 +60,17 @@ outputvariable<-c("Composite Index 1"="Factor1",
                   "Normalized Composite Index 1"="NFactor1",
                   "Normalized Composite Index 2"="NFactor2")
 
+# Preferred default "Input indicators" selection per data source, applied on
+# app start and whenever "Input data" is switched, so the app opens on the
+# PI's preferred indicators/settings instead of requiring manual reselection
+# each time. Sources without an entry here fall back to their first 3
+# variables, matching prior behavior.
+default_indicators <- list(
+  WGI    = c("Political", "Government", "Rule", "Control"),
+  VDemCY = c("v2x_rule", "v2caviol", "v2xnp_regcorr", "v2clrspct")
+)
+default_output_indicator <- "NFactor1"
+
 Yearlydata<-data.frame(Inter=seq(1,19,by=1)/19,Percent=seq(5,95,by=5))
 
 datavariable<-c("WGI data"="WGI",

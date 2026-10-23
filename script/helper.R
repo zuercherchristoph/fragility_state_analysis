@@ -1,4 +1,26 @@
 
+#' Keep a current selectInput value if still valid, else fall back
+#'
+#' @description
+#' Used when a selectInput's `choices` are being replaced (e.g. switching
+#' between Raw and Composite output-indicator lists): keeps the currently
+#' selected value if it's still present in the new choices, otherwise uses
+#' `fallback`. Passing this explicitly to `updateSelectInput(selected = ...)`
+#' avoids relying on Shiny's implicit "leave selection unchanged" behavior,
+#' which does not reliably survive a full choices replacement.
+#'
+#' @param current Current value of the input (e.g. `input$Output_indicator`).
+#' @param choices New choices vector the input is being updated to.
+#' @param fallback Value to use if `current` is not among `choices`.
+#' @export
+keep_or_default <- function(current, choices, fallback) {
+  if (!is.null(current) && length(current) == 1 && current %in% choices) {
+    current
+  } else {
+    fallback
+  }
+}
+
 #' Download modal with CSV/XLSX buttons (Shiny)
 #'
 #' @description
