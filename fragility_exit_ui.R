@@ -3,7 +3,7 @@ page_sidebar(
 
   sidebar = sidebar(width = 400, fillable_mobile = TRUE,
                     h3("Input",style = "background-color: #0d2b56;color: white !important; text-align: center;"),
-                    selectInput(inputId="Data_input", label = "Input data", choices=datavariable), 
+                    selectInput(inputId="Data_input", label = "Input data", choices=datavariable, selected="VDemCY"),
                     selectInput(inputId="Year_input", label="Reference period", choices =YearList$WGI), 
                     selectInput(inputId="PCA_input", label="Input indicators",choices=PCA_Varlist$WGI, multiple = TRUE, selected=default_indicators$WGI),
                     #hr(),
