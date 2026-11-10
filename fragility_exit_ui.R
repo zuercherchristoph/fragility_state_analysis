@@ -461,30 +461,28 @@ Percentile_func <- reactive({
            -Year) |>
     filter(Index == input$Output_indicator)
   
-  
+  # Reverse-coded raw indicators (e.g. political violence, regime corruption)
+  # run "high = more fragile" on their native V-Dem scale. Flip sign so the
+  # plotted trend line and threshold lines read "low = more fragile"
+  # consistently with the other raw indicators and the Composite index (see
+  # exitdrop_func / success_grouping, which use the same convention).
+  if (input$Output_indicator %in% reverse_coded_vars) {
+    temp <- temp |> mutate(value = -value)
+  }
   
   
   
   percent <- as.numeric(input$Percentile_Value) / 100
-
-  # Reverse-coded raw indicators (e.g. political violence, regime corruption)
-  # run "high = more fragile". Compute the fragile/exit threshold lines on
-  # the sign-flipped value so they land on the correct side of the
-  # distribution, then flip the resulting values back to the raw scale so
-  # the dashed lines are positioned correctly against the (unflipped) raw
-  # trend line plotted from source_df below.
-  sign_factor <- if (input$Output_indicator %in% reverse_coded_vars) -1 else 1
-
+  
   if (input$Percentile_type == "Fixed") {
-    percent_df <- temp |> reframe(quantile_func(value * sign_factor, probs = percent), .groups = "drop")
+    percent_df <- temp |> reframe(quantile_func(value, probs = percent), .groups = "drop")
     percent_df <- tibble(Year = InputYear()) |> group_by(Year) |> reframe(percent_df, .groups = "drop")
   }
   if (input$Percentile_type == "Varying") {
-    percent_df <- temp |> group_by(Year) |> reframe(quantile_func(value * sign_factor, probs =
+    percent_df <- temp |> group_by(Year) |> reframe(quantile_func(value, probs =
                                                                     percent), .groups = "drop")
-
+    
   }
-  percent_df <- percent_df |> mutate(Percent_value = Percent_value * sign_factor)
   result$source_df <- temp
   result$percent_df <- percent_df
   return(result)
