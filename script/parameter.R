@@ -71,6 +71,18 @@ default_indicators <- list(
 )
 default_output_indicator <- "NFactor1"
 
+# Raw indicator variables whose V-Dem coding runs "high = normatively worse"
+# (opposite of this app's other raw variables, where high = less fragile).
+# v2caviol ("Political violence"): high = more violence.
+# v2xnp_regcorr ("Regime corruption"): V-Dem's own codebook flags this index
+# as deliberately reversed from their usual convention -- high = more
+# corruption. Used to correct the direction of percentile-based
+# fragile/non-fragile classification (see exitdrop_func, success_grouping,
+# Percentile_func) when one of these is selected as the raw Output indicator;
+# the Composite index is unaffected since PCA already orients the combined
+# score consistently regardless of each raw variable's native polarity.
+reverse_coded_vars <- c("v2caviol", "v2xnp_regcorr")
+
 Yearlydata<-data.frame(Inter=seq(1,19,by=1)/19,Percent=seq(5,95,by=5))
 
 datavariable<-c("WGI data"="WGI",
